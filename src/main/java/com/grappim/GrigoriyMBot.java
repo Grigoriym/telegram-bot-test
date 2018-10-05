@@ -3,10 +3,15 @@ package com.grappim;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Date;
 import java.util.List;
 import java.util.Properties;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.send.SendPhoto;
@@ -23,6 +28,8 @@ import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
 public class GrigoriyMBot extends TelegramLongPollingBot {
 
+  private static final Logger logger = LoggerFactory.getLogger(GrigoriyMBot.class);
+
   private Properties prop;
   private String pathToConfig = "src/main/resources/config.properties";
 
@@ -33,10 +40,32 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
   @Override
   public void onUpdateReceived(Update update) {
     if (update.hasMessage() && update.getMessage().hasText()) {
+      logging(update);
       onUpdateReceivedText(update);
     } else if (update.hasMessage() && update.getMessage().hasPhoto()) {
+      logging(update);
       onUpdateReceivedPhoto(update);
     }
+  }
+
+  private void logging(Update update) {
+    String userFirstName = update.getMessage().getChat().getFirstName();
+    String userLastName = update.getMessage().getChat().getLastName();
+    String username = update.getMessage().getChat().getUserName();
+    String messageText = update.getMessage().getText();
+    long chatId = update.getMessage().getChatId();
+
+    DateFormat dateFormat = new SimpleDateFormat("dd/MM//yyyy HH:mm::ss");
+    Date date = new Date();
+
+    if (messageText == null) {
+      messageText = update.getMessage().getPhoto().get(0).getFileId();
+    }
+
+    logger.info(dateFormat.format(date) +
+        "\nMessage from " + userFirstName + " " + userLastName + " (@" + username + ")(chat_id = "
+        + chatId +
+        ") Text - " + messageText);
   }
 
   private void onUpdateReceivedText(Update update) {
@@ -83,7 +112,7 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
         sendPhoto(msg);
         break;
       }
-      case "/hide":{
+      case "/hide": {
         SendMessage msg = createMessage(chatId, "Keyboard hidden");
         ReplyKeyboardRemove keyboardMarkup = new ReplyKeyboardRemove();
         msg.setReplyMarkup(keyboardMarkup);
