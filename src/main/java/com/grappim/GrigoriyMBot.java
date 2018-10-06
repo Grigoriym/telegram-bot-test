@@ -1,8 +1,20 @@
 package com.grappim;
 
-import java.io.FileInputStream;
+import com.mongodb.BasicDBObject;
+import com.mongodb.DB;
+import com.mongodb.DBCollection;
+import com.mongodb.DBCursor;
+import com.mongodb.DBObject;
+import com.mongodb.MongoClient;
+import com.mongodb.MongoClientURI;
+import com.mongodb.client.FindIterable;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoDatabase;
+import com.vdurmont.emoji.EmojiParser;
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -15,13 +27,18 @@ import org.slf4j.LoggerFactory;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.send.SendPhoto;
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
 import org.telegram.telegrambots.meta.api.objects.PhotoSize;
 import org.telegram.telegrambots.meta.api.objects.Update;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardRemove;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardRow;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
+import org.bson.Document;
 
+import static java.lang.Math.toIntExact;
 /**
  * IDE: IntelliJ IDEA Created by grigo on Oct, 05, 2018 Project: telegrambottest
  */
@@ -31,7 +48,6 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
   private static final Logger logger = LoggerFactory.getLogger(GrigoriyMBot.class);
 
   private Properties prop;
-  private String pathToConfig = "src/main/resources/config.properties";
 
   public GrigoriyMBot() {
     loadProperties();
@@ -42,6 +58,22 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
     if (update.hasMessage() && update.getMessage().hasText()) {
       logging(update);
       onUpdateReceivedText(update);
+    } else if (update.hasCallbackQuery()) {
+      String callData = update.getCallbackQuery().getData();
+      long messageId = update.getCallbackQuery().getMessage().getMessageId();
+      long chatId = update.getCallbackQuery().getMessage().getChatId();
+      if (callData.equals("update_msg_text")) {
+        String answer = "Updated message text";
+        EditMessageText newMessage = new EditMessageText()
+            .setChatId(chatId)
+            .setMessageId(toIntExact(messageId))
+            .setText(answer);
+        try {
+          execute(newMessage);
+        } catch (TelegramApiException e) {
+          e.printStackTrace();
+        }
+      }
     } else if (update.hasMessage() && update.getMessage().hasPhoto()) {
       logging(update);
       onUpdateReceivedPhoto(update);
@@ -73,8 +105,22 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
     long chatId = update.getMessage().getChatId();
     switch (messageText) {
       case "/start": {
-        SendMessage message = createMessage(chatId, messageText);
+        SendMessage message = createMessage(chatId, "You send /start");
+        InlineKeyboardMarkup markupInline = new InlineKeyboardMarkup();
+        List<List<InlineKeyboardButton>> rowsInline = new ArrayList<>();
+        List<InlineKeyboardButton> rowInline = new ArrayList<>();
+        rowInline.add(new InlineKeyboardButton().setText("Update message text")
+            .setCallbackData("update_msg_text"));
+        rowsInline.add(rowInline);
+        markupInline.setKeyboard(rowsInline);
+        message.setReplyMarkup(markupInline);
         sendMessage(message);
+        break;
+      }
+      case "/mongodb":{
+        SendMessage msg = createMessage(chatId, "/mongo test");
+        sendMessage(msg);
+        check(getUserInfo(update));
         break;
       }
       case "/pic": {
@@ -119,6 +165,12 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
         sendMessage(msg);
         break;
       }
+      case "/emoji-test":{
+        String textMessage = EmojiParser.parseToUnicode("Some emojis: :smile::relieved:");
+        SendMessage msg = createMessage(chatId, textMessage);
+        sendMessage(msg);
+        break;
+      }
       default: {
         SendMessage message = createMessage(chatId, "Unknown command");
         sendMessage(message);
@@ -156,9 +208,10 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
   }
 
   private void loadProperties() {
+    InputStream inputStream = getClass().getResourceAsStream("/config.properties");
     prop = new Properties();
-    try (InputStream input = new FileInputStream(pathToConfig)) {
-      prop.load(input);
+    try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream))) {
+      prop.load(reader);
     } catch (IOException e) {
       e.printStackTrace();
     }
@@ -184,6 +237,44 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
     } catch (TelegramApiException e) {
       e.printStackTrace();
     }
+  }
+
+  private String check(String[] arr) {
+    MongoClientURI connectionString = new MongoClientURI("mongodb://127.0.0.1:27017");
+    MongoClient mongoClient = new MongoClient(connectionString);
+    MongoDatabase database = mongoClient.getDatabase("telegram-bot-test");
+    MongoCollection<Document> collection = database.getCollection("users");
+    BasicDBObject searchQuery = new BasicDBObject();
+    searchQuery.put("id", arr[2]);
+    FindIterable<Document> docs = collection.find(searchQuery);
+    int count = 0;
+    for (Document doc : docs) {
+      if (doc.containsValue(arr[2])) {
+        count++;
+      }
+    }
+    if (count == 0) {
+      Document doc = new Document("first_name", arr[0])
+          .append("last_name", arr[1])
+          .append("id", arr[2])
+          .append("username", arr[3]);
+      collection.insertOne(doc);
+      mongoClient.close();
+      System.out.println("User not exists in database. Written.");
+      return "no_exists";
+    } else {
+      System.out.println("User exists in database.");
+      mongoClient.close();
+      return "exists";
+    }
+  }
+
+  private String[] getUserInfo(Update update) {
+    String userFirstName = update.getMessage().getChat().getFirstName();
+    String userLastName = update.getMessage().getChat().getLastName();
+    String username = update.getMessage().getChat().getUserName();
+    String userId = String.valueOf(update.getMessage().getChat().getId());
+    return new String[]{userFirstName, userLastName, userId, username};
   }
 
   @Override
