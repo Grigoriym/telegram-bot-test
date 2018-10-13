@@ -12,8 +12,8 @@ public class FieldConstants {
   public static final String JAVA_FX = "JAVA FX";
   public static final String SCALA = "Scala";
   public static final String KOTLIN = "Kotlin";
-  public static final String PSEUDO_RANDOM = "Pesudo random";
-  public static final String LIST_OF_QUESTIONS = "List of questionsPSE";
+  public static final String PSEUDO_RANDOM = "Pseudo random";
+  public static final String LIST_OF_QUESTIONS = "List of questions";
 
   public static final String BOOKS_COMMAND = "/books";
   public static final String ABOUT_ME_COMMAND = "/aboutme";

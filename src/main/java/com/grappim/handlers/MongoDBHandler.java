@@ -6,6 +6,9 @@ import com.mongodb.MongoClientURI;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.model.Aggregates;
+import java.util.Arrays;
+import java.util.Collections;
 import org.bson.Document;
 
 /**
@@ -38,6 +41,10 @@ public class MongoDBHandler {
         break;
       }
     }
+  }
+
+  public static Document getRandomQuestion() {
+    return qaTestCollection.aggregate(Collections.singletonList(Aggregates.sample(1))).first();
   }
 
   public static FindIterable<Document> findInCollection(BasicDBObject searchQuery, String collectionName) {
