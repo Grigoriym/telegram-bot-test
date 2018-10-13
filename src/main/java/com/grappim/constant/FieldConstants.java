@@ -23,4 +23,10 @@ public class FieldConstants {
   public static final String WEBSITES_COMMAND = "/wesites";
   public static final String TEST_ME_COMMAND = "/testme";
 
+  public static final String SEND_ME_RANDOM_ARTICLE = "/send-random-article";
+
+  public static final String NEXT_RANDOM_QUESTION = ":arrow_right: Next Question";
+  public static final String MAIN_PAGE = ":house: Main Page";
+
+
 }

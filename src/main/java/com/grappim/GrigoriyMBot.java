@@ -1,11 +1,12 @@
 package com.grappim;
 
-import static java.lang.Math.toIntExact;
-
 import com.grappim.constant.FieldConstants;
 import com.grappim.handlers.MongoDBHandler;
 import com.mongodb.BasicDBObject;
 import com.mongodb.client.FindIterable;
+import com.vdurmont.emoji.EmojiParser;
+import com.vdurmont.emoji.EmojiParser.EmojiTransformer;
+import com.vdurmont.emoji.EmojiParser.UnicodeCandidate;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
@@ -13,7 +14,6 @@ import java.io.InputStreamReader;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
@@ -24,7 +24,6 @@ import org.slf4j.LoggerFactory;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.send.SendPhoto;
-import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
 import org.telegram.telegrambots.meta.api.objects.PhotoSize;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
@@ -66,11 +65,21 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
   private void onUpdateReceivedCallbackQuery(Update update) {
     String callData = update.getCallbackQuery().getData();
     if (callData.equals(correctAnswer)) {
-      sendMessage(createMessage("Correct"));
+      sendMessage(createMessage(createEmoji(":thumbsup:") + " Correct"));
       correctAnswer = "";
-    }else{
-      sendMessage(createMessage("Incorrect\n" + explanation));
+      ReplyKeyboardMarkup keyboardMarkup = createReplyKeyboardMarkup(
+          new String[]{createEmoji(FieldConstants.NEXT_RANDOM_QUESTION),
+              createEmoji(FieldConstants.MAIN_PAGE)});
+      sendMessage(
+          createMessage(createEmoji(":question:") + "Choose:").setReplyMarkup(keyboardMarkup));
+    } else {
+      sendMessage(createMessage(createEmoji(":poop:") + " Incorrect\n" + explanation));
       explanation = "";
+      ReplyKeyboardMarkup keyboardMarkup = createReplyKeyboardMarkup(
+          new String[]{createEmoji(FieldConstants.NEXT_RANDOM_QUESTION),
+              createEmoji(FieldConstants.MAIN_PAGE)});
+      sendMessage(
+          createMessage(createEmoji(":question:") + "Choose:").setReplyMarkup(keyboardMarkup));
     }
   }
 
@@ -94,67 +103,29 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
     String messageText = update.getMessage().getText();
     switch (messageText) {
       case FieldConstants.START_COMMAND: {
-        SendMessage message = createMessage("You send /start");
-        sendMessage(message);
+        sendMessage(createMessage("You send /start"));
         break;
       }
       case FieldConstants.ABOUT_ME_COMMAND: {
         String text = "I am a  bot who wants to help you with Java.\n" +
             "The source code you can find here: https://github.com/Grigoriym/telegram-bot-test.\n";
-        SendMessage message = createMessage(text);
-        sendMessage(message);
+        sendMessage(createMessage(text));
         break;
       }
       case FieldConstants.TEST_ME_COMMAND: {
-        String text = "Let's test you";
-        SendMessage message = createMessage(text);
-        ReplyKeyboardMarkup keyboardMarkup = new ReplyKeyboardMarkup();
-        List<KeyboardRow> keyboard = new ArrayList<>();
-        KeyboardRow row = new KeyboardRow();
-        row.add(FieldConstants.PSEUDO_RANDOM);
-        row.add(FieldConstants.LIST_OF_QUESTIONS);
-        keyboard.add(row);
-        keyboardMarkup.setKeyboard(keyboard);
-        keyboardMarkup.setOneTimeKeyboard(true);
-        message.setReplyMarkup(keyboardMarkup);
-        sendMessage(message);
+        testMeCommand();
         break;
       }
       case FieldConstants.PSEUDO_RANDOM: {
-        MongoDBHandler.connect();
-        Document document = MongoDBHandler.getRandomQuestion();
-        MongoDBHandler.disconnect();
+        sendPseudoRandomQuestion();
+        break;
+      }
+      case FieldConstants.MAIN_PAGE: {
 
-        StringBuilder sb = new StringBuilder();
-        Object[] arr = document.values().toArray();
-        sb.append(arr[1]).append("\n")
-            .append("a: ").append(arr[2]).append("\n")
-            .append("b: ").append(arr[3]).append("\n")
-            .append("c: ").append(arr[4]).append("\n")
-            .append("d: ").append(arr[5]);
-        correctAnswer = (String) arr[6];
-        explanation = (String) arr[7];
-        SendMessage msg = createMessage(sb.toString());
-        sendMessage(msg);
-
-        SendMessage message = createMessage("Your answer is:");
-        InlineKeyboardMarkup markupInline = new InlineKeyboardMarkup();
-        List<List<InlineKeyboardButton>> rowsInline = new ArrayList<>();
-        List<InlineKeyboardButton> rowInline = new ArrayList<>();
-
-        rowInline.add(new InlineKeyboardButton().setText("a")
-            .setCallbackData("a"));
-        rowInline.add(new InlineKeyboardButton().setText("b")
-            .setCallbackData("b"));
-        rowInline.add(new InlineKeyboardButton().setText("c")
-            .setCallbackData("c"));
-        rowInline.add(new InlineKeyboardButton().setText("d")
-            .setCallbackData("d"));
-        rowsInline.add(rowInline);
-
-        markupInline.setKeyboard(rowsInline);
-        message.setReplyMarkup(markupInline);
-        sendMessage(message);
+        break;
+      }
+      case FieldConstants.NEXT_RANDOM_QUESTION: {
+        sendPseudoRandomQuestion();
         break;
       }
       case "/addq": {
@@ -225,6 +196,56 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
       String c, String d, String explanation, String correctAnswer) {
     MongoDBHandler.addDocumentToCollection(addQuestionToDB(question, a, b, c, d, explanation,
         correctAnswer), MongoDBHandler.COLLECTION_NAME_QA_TEST);
+  }
+
+  private String createEmoji(String emoji) {
+    return EmojiParser.parseToUnicode(emoji);
+  }
+
+  private void sendPseudoRandomQuestion() {
+    MongoDBHandler.connect();
+    Document document = MongoDBHandler.getRandomQuestion();
+    MongoDBHandler.disconnect();
+
+    StringBuilder sb = new StringBuilder();
+    Object[] arr = document.values().toArray();
+    sb.append(arr[1]).append("\n")
+        .append("a: ").append(arr[2]).append("\n")
+        .append("b: ").append(arr[3]).append("\n")
+        .append("c: ").append(arr[4]).append("\n")
+        .append("d: ").append(arr[5]);
+    correctAnswer = (String) arr[6];
+    explanation = (String) arr[7];
+    sendMessage(createMessage(sb.toString()));
+
+    SendMessage message = createMessage("Your answer is:");
+    InlineKeyboardMarkup markupInline = new InlineKeyboardMarkup();
+    List<List<InlineKeyboardButton>> rowsInline = new ArrayList<>();
+    List<InlineKeyboardButton> rowInline = new ArrayList<>();
+
+    rowInline.add(new InlineKeyboardButton().setText("a")
+        .setCallbackData("a"));
+    rowInline.add(new InlineKeyboardButton().setText("b")
+        .setCallbackData("b"));
+    rowInline.add(new InlineKeyboardButton().setText("c")
+        .setCallbackData("c"));
+    rowInline.add(new InlineKeyboardButton().setText("d")
+        .setCallbackData("d"));
+    rowsInline.add(rowInline);
+
+    markupInline.setKeyboard(rowsInline);
+    message.setReplyMarkup(markupInline);
+    sendMessage(message);
+  }
+
+  private void testMeCommand() {
+    String text = "Let's test you";
+    SendMessage message = createMessage(text);
+    ReplyKeyboardMarkup keyboardMarkup = createReplyKeyboardMarkup(
+        new String[]{FieldConstants.PSEUDO_RANDOM,
+            FieldConstants.LIST_OF_QUESTIONS});
+    message.setReplyMarkup(keyboardMarkup);
+    sendMessage(message);
   }
 
   private void onUpdateReceivedPhoto(Update update) {
@@ -312,6 +333,20 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
       MongoDBHandler.disconnect();
       return "exists";
     }
+  }
+
+  private ReplyKeyboardMarkup createReplyKeyboardMarkup(String[] rows) {
+    ReplyKeyboardMarkup replyKeyboardMarkup = new ReplyKeyboardMarkup();
+    List<KeyboardRow> keyboardRows = new ArrayList<>();
+    KeyboardRow keyboardRow = new KeyboardRow();
+    for (String row : rows) {
+      keyboardRow.add(row);
+    }
+    keyboardRows.add(keyboardRow);
+    replyKeyboardMarkup.setKeyboard(keyboardRows);
+    replyKeyboardMarkup.setOneTimeKeyboard(true);
+    replyKeyboardMarkup.setResizeKeyboard(true);
+    return replyKeyboardMarkup;
   }
 
   private String[] getUserInfo(Update update) {
