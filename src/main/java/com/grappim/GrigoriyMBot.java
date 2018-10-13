@@ -6,7 +6,6 @@ import com.grappim.constant.FieldConstants;
 import com.grappim.handlers.MongoDBHandler;
 import com.mongodb.BasicDBObject;
 import com.mongodb.client.FindIterable;
-import com.vdurmont.emoji.EmojiParser;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
@@ -14,6 +13,7 @@ import java.io.InputStreamReader;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
@@ -45,14 +45,15 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
   private Properties prop;
   private long chatId;
 
+  private String correctAnswer;
+  private String explanation;
+
   public GrigoriyMBot() {
     loadProperties();
   }
 
   @Override
   public void onUpdateReceived(Update update) {
-    chatId = update.getMessage().getChatId();
-    logging(update);
     if (update.hasMessage() && update.getMessage().hasText()) {
       onUpdateReceivedText(update);
     } else if (update.hasCallbackQuery()) {
@@ -64,18 +65,12 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
 
   private void onUpdateReceivedCallbackQuery(Update update) {
     String callData = update.getCallbackQuery().getData();
-    long messageId = update.getCallbackQuery().getMessage().getMessageId();
-    if (callData.equals("update_msg_text")) {
-      String answer = "Updated message text";
-      EditMessageText newMessage = new EditMessageText()
-          .setChatId(chatId)
-          .setMessageId(toIntExact(messageId))
-          .setText(answer);
-      try {
-        execute(newMessage);
-      } catch (TelegramApiException e) {
-        e.printStackTrace();
-      }
+    if (callData.equals(correctAnswer)) {
+      sendMessage(createMessage("Correct"));
+      correctAnswer = "";
+    }else{
+      sendMessage(createMessage("Incorrect\n" + explanation));
+      explanation = "";
     }
   }
 
@@ -94,18 +89,12 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
   }
 
   private void onUpdateReceivedText(Update update) {
+    logging(update);
+    chatId = update.getMessage().getChatId();
     String messageText = update.getMessage().getText();
     switch (messageText) {
       case FieldConstants.START_COMMAND: {
         SendMessage message = createMessage("You send /start");
-        InlineKeyboardMarkup markupInline = new InlineKeyboardMarkup();
-        List<List<InlineKeyboardButton>> rowsInline = new ArrayList<>();
-        List<InlineKeyboardButton> rowInline = new ArrayList<>();
-        rowInline.add(new InlineKeyboardButton().setText("Update message text")
-            .setCallbackData("update_msg_text"));
-        rowsInline.add(rowInline);
-        markupInline.setKeyboard(rowsInline);
-        message.setReplyMarkup(markupInline);
         sendMessage(message);
         break;
       }
@@ -126,22 +115,51 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
         row.add(FieldConstants.LIST_OF_QUESTIONS);
         keyboard.add(row);
         keyboardMarkup.setKeyboard(keyboard);
+        keyboardMarkup.setOneTimeKeyboard(true);
         message.setReplyMarkup(keyboardMarkup);
+        sendMessage(message);
+        break;
+      }
+      case FieldConstants.PSEUDO_RANDOM: {
+        MongoDBHandler.connect();
+        Document document = MongoDBHandler.getRandomQuestion();
+        MongoDBHandler.disconnect();
+
+        StringBuilder sb = new StringBuilder();
+        Object[] arr = document.values().toArray();
+        sb.append(arr[1]).append("\n")
+            .append("a: ").append(arr[2]).append("\n")
+            .append("b: ").append(arr[3]).append("\n")
+            .append("c: ").append(arr[4]).append("\n")
+            .append("d: ").append(arr[5]);
+        correctAnswer = (String) arr[6];
+        explanation = (String) arr[7];
+        SendMessage msg = createMessage(sb.toString());
+        sendMessage(msg);
+
+        SendMessage message = createMessage("Your answer is:");
+        InlineKeyboardMarkup markupInline = new InlineKeyboardMarkup();
+        List<List<InlineKeyboardButton>> rowsInline = new ArrayList<>();
+        List<InlineKeyboardButton> rowInline = new ArrayList<>();
+
+        rowInline.add(new InlineKeyboardButton().setText("a")
+            .setCallbackData("a"));
+        rowInline.add(new InlineKeyboardButton().setText("b")
+            .setCallbackData("b"));
+        rowInline.add(new InlineKeyboardButton().setText("c")
+            .setCallbackData("c"));
+        rowInline.add(new InlineKeyboardButton().setText("d")
+            .setCallbackData("d"));
+        rowsInline.add(rowInline);
+
+        markupInline.setKeyboard(rowsInline);
+        message.setReplyMarkup(markupInline);
         sendMessage(message);
         break;
       }
       case "/addq": {
         MongoDBHandler.connect();
-//        String question = "Which of the following method signatures is a valid declaration of an entry point in a Java application";
-//        String a = "public void main(String[] args)";
-//        String b = "public static void main()";
-//        String c =
-//            "private static void start(String[] mydata)";
-//        String d = "public static final void main(String[] mydata)";
-//        String explanation = "An entry point in a Java application of a main() method with a single String[] argument, return type of void, and modifiers public and static. The name of the variable in the input argument does not matter. Option A is missing the static modifier, Option B is missing the String[] argument, and Option C has the wrong access nmodifier and method name. Only D option fulfills these requirements. Note that the modifier final is optional and may be added to an entry point method.";
-//        MongoDBHandler
-//            .addDocumentToCollection(addQuestionToDB(question, a, b, c, d, explanation, "d"),
-//                MongoDBHandler.COLLECTION_NAME_QA_TEST);
+
         MongoDBHandler.disconnect();
         break;
       }
@@ -189,29 +207,6 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
         sendPhoto(msg);
         break;
       }
-      case "/markup": {
-        SendMessage message = createMessage("Here is your keyboard");
-        ReplyKeyboardMarkup keyboardMarkup = new ReplyKeyboardMarkup();
-        List<KeyboardRow> keyboard = new ArrayList<>();
-        KeyboardRow row = new KeyboardRow();
-        row.add("Row 1 Btn 1");
-        row.add("Row 1 Btn 2");
-        row.add("Row 1 Btn 3");
-        keyboard.add(row);
-        row = new KeyboardRow();
-        row.add("Row 2 Btn 1");
-        row.add("Row 2 Btn 2");
-        row.add("Row 2 Btn 3");
-        keyboard.add(row);
-        keyboardMarkup.setKeyboard(keyboard);
-        message.setReplyMarkup(keyboardMarkup);
-        sendMessage(message);
-        break;
-      }
-      case "Row 1 Btn 1": {
-        sendMessage(createMessage("Row 1 Btn 1"));
-        break;
-      }
       case "/hide": {
         SendMessage msg = createMessage("Keyboard hidden");
         ReplyKeyboardRemove keyboardMarkup = new ReplyKeyboardRemove();
@@ -219,16 +214,17 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
         sendMessage(msg);
         break;
       }
-      case "/emoji-test": {
-        String textMessage = EmojiParser.parseToUnicode("Some emojis: :smile::relieved:");
-        sendMessage(createMessage(textMessage));
-        break;
-      }
       default: {
         sendMessage(createMessage("Unknown command"));
         break;
       }
     }
+  }
+
+  private void createQuestion(String question, String a, String b,
+      String c, String d, String explanation, String correctAnswer) {
+    MongoDBHandler.addDocumentToCollection(addQuestionToDB(question, a, b, c, d, explanation,
+        correctAnswer), MongoDBHandler.COLLECTION_NAME_QA_TEST);
   }
 
   private void onUpdateReceivedPhoto(Update update) {
