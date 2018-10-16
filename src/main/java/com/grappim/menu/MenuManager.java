@@ -47,7 +47,6 @@ public class MenuManager {
     if (page > lastPage) {
       return pageMenu;
     }
-
     int start = page * buttonsPerPage;
     int end = (page + 1) * buttonsPerPage - 1;
 

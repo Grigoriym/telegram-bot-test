@@ -13,7 +13,6 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKe
 public class InlineKeyboardBuilder {
 
   private Long chatId;
-
   private String text;
 
   private List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
@@ -23,8 +22,7 @@ public class InlineKeyboardBuilder {
   }
 
   public static InlineKeyboardBuilder create() {
-    InlineKeyboardBuilder builder = new InlineKeyboardBuilder();
-    return builder;
+    return new InlineKeyboardBuilder();
   }
 
   public static InlineKeyboardBuilder create(Long chatId) {
@@ -63,12 +61,9 @@ public class InlineKeyboardBuilder {
     SendMessage message = new SendMessage();
     message.setChatId(chatId);
     message.setText(text);
-
     InlineKeyboardMarkup keyboardMarkup = new InlineKeyboardMarkup();
-
     keyboardMarkup.setKeyboard(keyboard);
     message.setReplyMarkup(keyboardMarkup);
-
     return message;
   }
 }
