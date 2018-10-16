@@ -1,20 +1,16 @@
 package com.grappim;
 
 import com.grappim.builders.InlineKeyboardBuilder;
+import com.grappim.builders.KeyboardMarkupBuilder;
 import com.grappim.constant.FieldConstants;
 import com.grappim.handlers.MongoDBHandler;
 import com.grappim.menu.MenuManager;
+import com.grappim.util.LoadProperties;
 import com.mongodb.BasicDBObject;
 import com.mongodb.client.FindIterable;
 import com.vdurmont.emoji.EmojiParser;
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 import java.util.Properties;
@@ -28,9 +24,7 @@ import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageTe
 import org.telegram.telegrambots.meta.api.objects.PhotoSize;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
-import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardRemove;
-import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardRow;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
 /**
@@ -43,18 +37,19 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
 
   private Properties prop;
   private long chatId;
-
-  private String correctAnswer;
+  private String ocaCorrectAnswer;
   private String explanation;
 
-  private int currentPageInList = 1;
-  private int numberOfPagesInList = 0;
-
   private MenuManager ocaMenuManager = new MenuManager();
+  private MenuManager interviewQManager = new MenuManager();
+
+  private LoadProperties loadProperties = new LoadProperties();
+
+  private String previousPage;
+  private String currentMenu;
 
   public GrigoriyMBot() {
     MongoDBHandler.connect();
-    loadProperties();
   }
 
   @Override
@@ -71,25 +66,21 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
   private void onUpdateReceivedCallbackQuery(Update update) {
     String callData = update.getCallbackQuery().getData();
     long messageId = update.getCallbackQuery().getMessage().getMessageId();
-    if (callData.startsWith(FieldConstants.OCA_RANDOM_QUESTION_ANSWER_PREFIX)) {
+
+    if (callData.startsWith(FieldConstants.OCA_ANSWER_PREFIX)) {
       String[] tokens = callData.split(" ");
-      System.out.println(Arrays.toString(tokens));
-      if (tokens[1].equals(correctAnswer)) {
+      if (tokens[1].equals(ocaCorrectAnswer)) {
         sendMessage(createMessage(createEmoji(":thumbsup: Correct")));
-        correctAnswer = "";
+        ocaCorrectAnswer = "";
       } else {
         sendMessage(createMessage(createEmoji(":poop:") + " Incorrect\n" + explanation));
         explanation = "";
       }
-      ReplyKeyboardMarkup keyboardMarkup = createReplyKeyboardMarkup(
-          new String[]{createEmoji(FieldConstants.NEXT_RANDOM_QUESTION),
-              createEmoji(FieldConstants.MAIN_PAGE)});
-      sendMessage(
-          createMessage(createEmoji(":question: Choose:")).setReplyMarkup(keyboardMarkup));
+      sendNextQMainPage();
     } else if (callData.startsWith(FieldConstants.OCA_NOT_RANDOM_QUESTION_PREFIX)) {
       String[] tokens = callData.split(" ");
-      sendQuestionById(tokens[1]);
-      createAnswers();
+      sendQuestionByIdToDB(tokens[1]);
+      createAnswers(FieldConstants.OCA_ANSWER_PREFIX);
     } else if (callData.equals(MenuManager.CANCEL_ACTION)) {
       replaceMessageWithText(chatId, messageId, "Cancelled");
     } else if (callData.startsWith(MenuManager.PREV_ACTION) ||
@@ -100,11 +91,24 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
       } else {
         pageNum = callData.replace(MenuManager.NEXT_ACTION + ":", "");
       }
-      InlineKeyboardBuilder builder = ocaMenuManager
-          .createMenuForPage(Integer.parseInt(pageNum), true);
-      builder.setChatId(chatId).setText("Choose action:");
-      SendMessage message = builder.build();
-      replaceMessage(chatId, messageId, message);
+      switch (currentMenu) {
+        case FieldConstants.LIST_OF_OCA_QUESTIONS: {
+          InlineKeyboardBuilder builder = ocaMenuManager
+              .createMenuForPage(Integer.parseInt(pageNum), true);
+          builder.setChatId(chatId).setText("Choose action:");
+          SendMessage message = builder.build();
+          replaceMessage(chatId, messageId, message);
+          break;
+        }
+        case FieldConstants.INTERVIEW_QUESTIONS: {
+          InlineKeyboardBuilder builder = interviewQManager
+              .createMenuForPage(Integer.parseInt(pageNum), true);
+          builder.setChatId(chatId).setText("Choose action:");
+          SendMessage message = builder.build();
+          replaceMessage(chatId, messageId, message);
+          break;
+        }
+      }
     }
   }
 
@@ -126,34 +130,39 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
     logging(update);
     chatId = update.getMessage().getChatId();
     String messageText = EmojiParser.parseToAliases(update.getMessage().getText());
+    if (messageText.equals(FieldConstants.BACK)) {
+      messageText = previousPage;
+    }
     switch (messageText) {
-      case FieldConstants.START_COMMAND: {
+      case FieldConstants.START_COMMAND:
+      case FieldConstants.MAIN_PAGE: {
+        currentMenu = "";
         homePage();
         break;
       }
       case FieldConstants.ABOUT_ME_COMMAND: {
-        String text = "I am a  bot who wants to help you with Java.\n" +
+        String text = "I am a bot who wants to help you with Java.\n" +
             "The source code you can find here: https://github.com/Grigoriym/telegram-bot-test.\n";
         sendMessage(createMessage(text));
         break;
       }
       case FieldConstants.OCA_TEST: {
-        testMeCommand();
+        currentMenu = "";
+        previousPage = FieldConstants.TESTS_AND_QUESTIONS;
+        ocaTestCommand();
         break;
       }
-      case FieldConstants.PSEUDO_RANDOM_QUESTION: {
-        sendPseudoRandomQuestion();
-        break;
-      }
-      case FieldConstants.MAIN_PAGE: {
-        homePage();
-        break;
-      }
+      case FieldConstants.PSEUDO_RANDOM_QUESTION:
       case FieldConstants.NEXT_RANDOM_QUESTION: {
         sendPseudoRandomQuestion();
         break;
       }
       case "/addq": {
+
+        break;
+      }
+      case "/update": {
+
         break;
       }
       case FieldConstants.ARTICLES: {
@@ -161,36 +170,19 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
         break;
       }
       case FieldConstants.LIST_OF_OCA_QUESTIONS: {
-        FindIterable<Document> docs = MongoDBHandler
-            .findAllDocumentsinCollection(MongoDBHandler.COLLECTION_NAME_OCA_QA_TEST);
-        ocaMenuManager.setColumnsCount(1);
-        for (Document doc : docs) {
-          ocaMenuManager.addMenuItem(
-              (String) doc.get("question"),
-              FieldConstants.OCA_NOT_RANDOM_QUESTION_PREFIX + " " + doc.get("_id").toString());
-        }
-        ocaMenuManager.init();
-        InlineKeyboardBuilder builder = ocaMenuManager.createMenuForPage(0, true);
-        builder.setChatId(chatId).setText("Choose question: ");
-        sendMessage(builder.build());
+        previousPage = FieldConstants.OCA_TEST;
+        currentMenu = FieldConstants.LIST_OF_OCA_QUESTIONS;
+        listOfOcaQuestionsCommand();
         break;
       }
-      case FieldConstants.TESTS: {
+      case FieldConstants.TESTS_AND_QUESTIONS: {
+        previousPage = FieldConstants.MAIN_PAGE;
         testsCommand();
         break;
       }
       case FieldConstants.BOOKS: {
-        String text = "Java books";
-        SendMessage message = createMessage(text);
-        ReplyKeyboardMarkup keyboardMarkup = new ReplyKeyboardMarkup();
-        List<KeyboardRow> keyboard = new ArrayList<>();
-        KeyboardRow row = new KeyboardRow();
-        row.add(FieldConstants.OCA_OCP_BOOKS);
-        row.add(FieldConstants.TDD);
-        keyboard.add(row);
-        keyboardMarkup.setKeyboard(keyboard);
-        message.setReplyMarkup(keyboardMarkup);
-        sendMessage(message);
+        previousPage = FieldConstants.MAIN_PAGE;
+        booksCommand();
         break;
       }
 
@@ -198,22 +190,35 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
 
         break;
       }
+      case FieldConstants.JAVA_CORE: {
+        currentMenu = "";
+        previousPage = FieldConstants.TESTS_AND_QUESTIONS;
+        javaCoreCommand();
+        break;
+      }
+      case FieldConstants.INTERVIEW_QUESTIONS: {
+        currentMenu = FieldConstants.INTERVIEW_QUESTIONS;
+        previousPage = FieldConstants.JAVA_CORE;
+        interviewQuestionsCommand();
+        break;
+      }
+      case FieldConstants.JAVA_CORE_COLLECTIONS: {
+
+        break;
+      }
       case FieldConstants.OCA_OCP_BOOKS: {
-        String text = "Books for OCA/OCP.\n" +
-            "Scott Selikoff - OCA  OCP Java SE 8 Programmer Practice Tests.\n" +
-            "Sierra K., Bates B., Robson E. - OCP Java SE 8 Programmer II Exam Guide (Exam 1Z0-809) - 2018\n";
-        sendMessage(createMessage(text));
+        previousPage = FieldConstants.BOOKS;
+        ocaOcpBooksCommand();
         break;
       }
       case FieldConstants.TDD: {
-        String text = "Boks for TDD.\n" +
-            "Shekhar Gulati - Java Unit Testing with JUnit 5 Test Driven Development with JUnit 5.\n";
-        sendMessage(createMessage(text));
+        previousPage = FieldConstants.BOOKS;
+        tddBooksCommand();
         break;
       }
       case "/mongodb": {
-        sendMessage(createMessage("/mongo test"));
-        check(getUserInfo(update));
+//        sendMessage(createMessage("/mongo test"));
+//        check(getUserInfo(update));
         break;
       }
       case "/hide": {
@@ -230,10 +235,36 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
     }
   }
 
-  private void createQuestion(String question, String a, String b,
+  private void interviewQuestionsCommand() {
+    FindIterable<Document> docs = MongoDBHandler
+        .findAllDocumentsInCollection(MongoDBHandler.COLLECTION_NAME_INTERVIEW_Q);
+    interviewQManager.setColumnsCount(1);
+    for (Document doc : docs) {
+      interviewQManager.addMenuItem(
+          (String) doc.get("question"),
+          FieldConstants.INTERVIEW_QUESTION_PREFIX + " " +
+              doc.get("_id").toString());
+    }
+    interviewQManager.init();
+    InlineKeyboardBuilder builder = interviewQManager.createMenuForPage(0, true);
+    builder.setChatId(chatId).setText("Choose question: ");
+    sendMessage(builder.build());
+  }
+
+  private void createOCAQuestion(String question, String a, String b,
       String c, String d, String explanation, String correctAnswer) {
-    MongoDBHandler.addDocumentToCollection(addQuestionToDB(question, a, b, c, d, explanation,
-        correctAnswer), MongoDBHandler.COLLECTION_NAME_OCA_QA_TEST);
+    MongoDBHandler.addDocumentToCollection(
+        addQuestionToOcaCollection(question, a, b, c, d, explanation,
+            correctAnswer), MongoDBHandler.COLLECTION_NAME_OCA_QA_TEST);
+  }
+
+  private void createInterviewQuestion(String question) {
+    MongoDBHandler.addDocumentToCollection(addQuestionToInterviewCollection(question),
+        MongoDBHandler.COLLECTION_NAME_INTERVIEW_Q);
+  }
+
+  private void changeQuestioninDB(String id) {
+
   }
 
   private String createEmoji(String emoji) {
@@ -243,23 +274,23 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
   private void sendPseudoRandomQuestion() {
     Document document = MongoDBHandler.getRandomQuestion();
     sendMessage(createMessage(createMessageByDocument(document)));
-    createAnswers();
+    createAnswers(FieldConstants.OCA_ANSWER_PREFIX);
   }
 
-  private void sendQuestionById(String id) {
+  private void sendQuestionByIdToDB(String id) {
     Document document = MongoDBHandler
         .getQuestionById(id, MongoDBHandler.COLLECTION_NAME_OCA_QA_TEST);
     sendMessage(createMessage(createMessageByDocument(document)));
   }
 
-  private void createAnswers() {
+  private void createAnswers(String prefix) {
     SendMessage msg = InlineKeyboardBuilder.create(chatId)
         .setText("Your answer is: ")
         .row()
-        .button("a", FieldConstants.OCA_RANDOM_QUESTION_ANSWER_PREFIX + " a")
-        .button("b", FieldConstants.OCA_RANDOM_QUESTION_ANSWER_PREFIX + " b")
-        .button("c", FieldConstants.OCA_RANDOM_QUESTION_ANSWER_PREFIX + " c")
-        .button("d", FieldConstants.OCA_RANDOM_QUESTION_ANSWER_PREFIX + " d")
+        .button("a", prefix + " a")
+        .button("b", prefix + " b")
+        .button("c", prefix + " c")
+        .button("d", prefix + " d")
         .endRow()
         .build();
     sendMessage(msg);
@@ -273,33 +304,27 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
         .append("b: ").append(arr[3]).append("\n")
         .append("c: ").append(arr[4]).append("\n")
         .append("d: ").append(arr[5]);
-    correctAnswer = (String) arr[6];
+    ocaCorrectAnswer = (String) arr[6];
     explanation = (String) arr[7];
     return sb.toString();
   }
 
-  private void testMeCommand() {
-    String text = "Let's test you";
-    SendMessage message = createMessage(text);
-    ReplyKeyboardMarkup keyboardMarkup = createReplyKeyboardMarkup(
-        new String[]{FieldConstants.PSEUDO_RANDOM_QUESTION,
-            FieldConstants.LIST_OF_OCA_QUESTIONS});
-    message.setReplyMarkup(keyboardMarkup);
-    sendMessage(message);
+  private void ocaTestCommand() {
+    SendMessage msg = KeyboardMarkupBuilder.create(chatId)
+        .setText("Let's test you")
+        .row()
+        .button(FieldConstants.PSEUDO_RANDOM_QUESTION)
+        .button(FieldConstants.LIST_OF_OCA_QUESTIONS)
+        .endRow()
+        .row()
+        .button(FieldConstants.BACK)
+        .endRow()
+        .build();
+    sendMessage(msg);
   }
 
   private void onUpdateReceivedPhoto(Update update) {
     List<PhotoSize> photos = update.getMessage().getPhoto();
-  }
-
-  private void loadProperties() {
-    InputStream inputStream = getClass().getResourceAsStream("/config.properties");
-    prop = new Properties();
-    try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream))) {
-      prop.load(reader);
-    } catch (IOException e) {
-      e.printStackTrace();
-    }
   }
 
   private SendMessage createMessage(String text) {
@@ -314,6 +339,46 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
     } catch (TelegramApiException e) {
       e.printStackTrace();
     }
+  }
+
+  private void ocaOcpBooksCommand() {
+    String text = "Books for OCA/OCP.\n" +
+        "Scott Selikoff - OCA  OCP Java SE 8 Programmer Practice Tests.\n" +
+        "Sierra K., Bates B., Robson E. - OCP Java SE 8 Programmer II Exam Guide (Exam 1Z0-809) - 2018\n";
+    SendMessage message = KeyboardMarkupBuilder.create(chatId)
+        .setText(text)
+        .row()
+        .button(FieldConstants.BACK)
+        .endRow()
+        .build();
+    sendMessage(message);
+  }
+
+  private void tddBooksCommand() {
+    String text = "Boks for TDD.\n" +
+        "Shekhar Gulati - Java Unit Testing with JUnit 5 Test Driven Development with JUnit 5.\n";
+    SendMessage message = KeyboardMarkupBuilder.create(chatId)
+        .setText(text)
+        .row()
+        .button(FieldConstants.BACK)
+        .endRow()
+        .build();
+    sendMessage(message);
+  }
+
+  private void booksCommand() {
+    SendMessage message =
+        KeyboardMarkupBuilder.create(chatId)
+            .setText("Books")
+            .row()
+            .button(FieldConstants.OCA_OCP_BOOKS)
+            .button(FieldConstants.TDD)
+            .endRow()
+            .row()
+            .button(FieldConstants.BACK)
+            .endRow()
+            .build();
+    sendMessage(message);
   }
 
   private void sendMessage(SendMessage sendMessage) {
@@ -359,45 +424,53 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
   }
 
   private void homePage() {
-    SendMessage msg = createMessage("Home page");
-    ReplyKeyboardMarkup keyboardMarkup = new ReplyKeyboardMarkup();
-    List<KeyboardRow> keyboard = new ArrayList<>();
-    KeyboardRow row = new KeyboardRow();
-    row.add(FieldConstants.TESTS);
-    row.add(FieldConstants.BOOKS);
-    row.add(FieldConstants.ARTICLES);
-    keyboard.add(row);
-    row = new KeyboardRow();
-    row.add(FieldConstants.WEBSITES);
-    keyboard.add(row);
-    keyboardMarkup.setKeyboard(keyboard);
-    keyboardMarkup.setOneTimeKeyboard(true);
-    keyboardMarkup.setResizeKeyboard(true);
-    msg.setReplyMarkup(keyboardMarkup);
-    sendMessage(msg);
+    SendMessage message = KeyboardMarkupBuilder.create(chatId)
+        .setText("Home page")
+        .row()
+        .button(FieldConstants.TESTS_AND_QUESTIONS)
+        .button(FieldConstants.BOOKS)
+        .button(FieldConstants.ARTICLES)
+        .endRow()
+        .row()
+        .button(FieldConstants.WEBSITES)
+        .endRow()
+        .build(true, true);
+    sendMessage(message);
+  }
+
+  private void javaCoreCommand() {
+    SendMessage message = KeyboardMarkupBuilder.create(chatId)
+        .setText(FieldConstants.JAVA_CORE)
+        .row()
+        .button(FieldConstants.JAVA_CORE_CONCURRENCY)
+        .button(FieldConstants.JAVA_CORE_COLLECTIONS)
+        .endRow()
+        .row()
+        .button(FieldConstants.INTERVIEW_QUESTIONS)
+        .endRow()
+        .row()
+        .button(FieldConstants.BACK)
+        .endRow()
+        .build();
+    sendMessage(message);
   }
 
   private void testsCommand() {
-    SendMessage msg = createMessage("Types of tests");
-    ReplyKeyboardMarkup replyKeyboardMarkup = createReplyKeyboardMarkup(
-        new String[]{FieldConstants.OCA_TEST,
-            FieldConstants.OCP_TEST, FieldConstants.SPRING_TEST});
-    msg.setReplyMarkup(replyKeyboardMarkup);
+    SendMessage msg = KeyboardMarkupBuilder.create(chatId)
+        .setText("Types of tests")
+        .row()
+        .button(FieldConstants.OCA_TEST)
+        .button(FieldConstants.OCP_TEST)
+        .button(FieldConstants.SPRING_TEST)
+        .endRow()
+        .row()
+        .button(FieldConstants.JAVA_CORE)
+        .endRow()
+        .row()
+        .button(FieldConstants.BACK)
+        .endRow()
+        .build();
     sendMessage(msg);
-  }
-
-  private ReplyKeyboardMarkup createReplyKeyboardMarkup(String[] rows) {
-    ReplyKeyboardMarkup replyKeyboardMarkup = new ReplyKeyboardMarkup();
-    List<KeyboardRow> keyboardRows = new ArrayList<>();
-    KeyboardRow keyboardRow = new KeyboardRow();
-    for (String row : rows) {
-      keyboardRow.add(row);
-    }
-    keyboardRows.add(keyboardRow);
-    replyKeyboardMarkup.setKeyboard(keyboardRows);
-    replyKeyboardMarkup.setOneTimeKeyboard(true);
-    replyKeyboardMarkup.setResizeKeyboard(true);
-    return replyKeyboardMarkup;
   }
 
   private void replaceMessage(long chatId, long messageId, SendMessage message) {
@@ -417,6 +490,32 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
     sendEditMessage(newMessage);
   }
 
+  private void sendNextQMainPage() {
+    SendMessage message = KeyboardMarkupBuilder.create(chatId)
+        .setText("Choose: ")
+        .row()
+        .button(createEmoji(FieldConstants.NEXT_RANDOM_QUESTION))
+        .button(createEmoji(FieldConstants.MAIN_PAGE))
+        .endRow()
+        .build(true, true);
+    sendMessage(message);
+  }
+
+  private void listOfOcaQuestionsCommand() {
+    FindIterable<Document> docs = MongoDBHandler
+        .findAllDocumentsInCollection(MongoDBHandler.COLLECTION_NAME_OCA_QA_TEST);
+    ocaMenuManager.setColumnsCount(1);
+    for (Document doc : docs) {
+      ocaMenuManager.addMenuItem(
+          (String) doc.get("question"),
+          FieldConstants.OCA_NOT_RANDOM_QUESTION_PREFIX + " " + doc.get("_id").toString());
+    }
+    ocaMenuManager.init();
+    InlineKeyboardBuilder builder = ocaMenuManager.createMenuForPage(0, true);
+    builder.setChatId(chatId).setText("Choose question: ");
+    sendMessage(builder.build());
+  }
+
   private String[] getUserInfo(Update update) {
     String userFirstName = update.getMessage().getChat().getFirstName();
     String userLastName = update.getMessage().getChat().getLastName();
@@ -425,7 +524,7 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
     return new String[]{userFirstName, userLastName, userId, username};
   }
 
-  private Document addQuestionToDB(String question, String a, String b, String c,
+  private Document addQuestionToOcaCollection(String question, String a, String b, String c,
       String d, String explanation, String correct) {
     return new Document("question", question)
         .append("a", a)
@@ -436,13 +535,17 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
         .append("explanation", explanation);
   }
 
+  private Document addQuestionToInterviewCollection(String question) {
+    return new Document("question", question);
+  }
+
   @Override
   public String getBotUsername() {
-    return prop.getProperty("botName");
+    return loadProperties.getProp().getProperty("botName");
   }
 
   @Override
   public String getBotToken() {
-    return prop.getProperty("botToken");
+    return loadProperties.getProp().getProperty("botToken");
   }
 }
