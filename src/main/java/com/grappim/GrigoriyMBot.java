@@ -34,8 +34,6 @@ import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 public class GrigoriyMBot extends TelegramLongPollingBot {
 
   private static final Logger logger = LoggerFactory.getLogger(GrigoriyMBot.class);
-
-  private Properties prop;
   private long chatId;
   private String ocaCorrectAnswer;
   private String explanation;
@@ -64,6 +62,7 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
   }
 
   private void onUpdateReceivedCallbackQuery(Update update) {
+    callbackLogging(update);
     String callData = update.getCallbackQuery().getData();
     long messageId = update.getCallbackQuery().getMessage().getMessageId();
 
@@ -83,6 +82,9 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
       createAnswers(FieldConstants.OCA_ANSWER_PREFIX);
     } else if (callData.equals(MenuManager.CANCEL_ACTION)) {
       replaceMessageWithText(chatId, messageId, "Cancelled");
+    } else if (callData.startsWith(FieldConstants.INTERVIEW_QUESTION_PREFIX)) {
+      String[] tokens = callData.split(" ");
+      sendInterviewQuestionByIdToDB(tokens[1]);
     } else if (callData.startsWith(MenuManager.PREV_ACTION) ||
         callData.startsWith(MenuManager.NEXT_ACTION)) {
       String pageNum;
@@ -110,6 +112,14 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
         }
       }
     }
+  }
+
+  private void callbackLogging(Update update) {
+    String msg = update.getCallbackQuery().getData();
+    DateFormat dateFormat = new SimpleDateFormat("dd/MM//yyyy HH:mm::ss");
+    Date date = new Date();
+    logger.info(dateFormat.format(date) + "\n"
+        + "Text - " + msg);
   }
 
   private void logging(Update update) {
@@ -158,7 +168,6 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
         break;
       }
       case "/addq": {
-
         break;
       }
       case "/update": {
@@ -263,24 +272,34 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
         MongoDBHandler.COLLECTION_NAME_INTERVIEW_Q);
   }
 
-  private void changeQuestioninDB(String id) {
-
-  }
-
   private String createEmoji(String emoji) {
     return EmojiParser.parseToUnicode(emoji);
   }
 
   private void sendPseudoRandomQuestion() {
     Document document = MongoDBHandler.getRandomQuestion();
-    sendMessage(createMessage(createMessageByDocument(document)));
+    sendMessage(createMessage(createOCAquestionByDocument(document)));
     createAnswers(FieldConstants.OCA_ANSWER_PREFIX);
   }
 
   private void sendQuestionByIdToDB(String id) {
     Document document = MongoDBHandler
-        .getQuestionById(id, MongoDBHandler.COLLECTION_NAME_OCA_QA_TEST);
-    sendMessage(createMessage(createMessageByDocument(document)));
+        .getDocumentByIdInCollection(id, MongoDBHandler.COLLECTION_NAME_OCA_QA_TEST);
+    sendMessage(createMessage(createOCAquestionByDocument(document)));
+  }
+
+  private void sendInterviewQuestionByIdToDB(String id) {
+    Document document = MongoDBHandler.getDocumentByIdInCollection(
+        id, MongoDBHandler.COLLECTION_NAME_INTERVIEW_Q
+    );
+    sendMessage(createMessage(createInterviewQuestionByDocument(document)));
+  }
+
+  private String createInterviewQuestionByDocument(Document document) {
+    StringBuilder sb = new StringBuilder();
+    Object[] arr = document.values().toArray();
+    sb.append(arr[1]);
+    return sb.toString();
   }
 
   private void createAnswers(String prefix) {
@@ -296,7 +315,7 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
     sendMessage(msg);
   }
 
-  private String createMessageByDocument(Document document) {
+  private String createOCAquestionByDocument(Document document) {
     StringBuilder sb = new StringBuilder();
     Object[] arr = document.values().toArray();
     sb.append(arr[1]).append("\n")
@@ -342,16 +361,23 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
   }
 
   private void ocaOcpBooksCommand() {
-    String text = "Books for OCA/OCP.\n" +
-        "Scott Selikoff - OCA  OCP Java SE 8 Programmer Practice Tests.\n" +
-        "Sierra K., Bates B., Robson E. - OCP Java SE 8 Programmer II Exam Guide (Exam 1Z0-809) - 2018\n";
-    SendMessage message = KeyboardMarkupBuilder.create(chatId)
-        .setText(text)
-        .row()
-        .button(FieldConstants.BACK)
-        .endRow()
-        .build();
-    sendMessage(message);
+//    String text = "Books for OCA/OCP.\n" +
+//        "Scott Selikoff - OCA  OCP Java SE 8 Programmer Practice Tests.\n" +
+//        "Sierra K., Bates B., Robson E. - OCP Java SE 8 Programmer II Exam Guide (Exam 1Z0-809) - 2018\n";
+//    SendMessage msg = InlineKeyboardBuilder.create(chatId)
+//        .setText("Books for OCA/OCP.")
+//        .row()
+//        .button(
+//            "Scott Selikoff - OCA  OCP Java SE 8 Programmer Practice Tests",
+//            FieldConstants.BOOKS_PREFIX + loadProperties.getProp().getProperty("ScottSOCAOCP2017"))
+//
+//    SendMessage message = KeyboardMarkupBuilder.create(chatId)
+//        .setText(text)
+//        .row()
+//        .button(FieldConstants.BACK)
+//        .endRow()
+//        .build();
+//    sendMessage(message);
   }
 
   private void tddBooksCommand() {
@@ -424,6 +450,7 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
   }
 
   private void homePage() {
+    sendMessage(createMessage("Type /start if you stuck somewhere"));
     SendMessage message = KeyboardMarkupBuilder.create(chatId)
         .setText("Home page")
         .row()
@@ -541,11 +568,11 @@ public class GrigoriyMBot extends TelegramLongPollingBot {
 
   @Override
   public String getBotUsername() {
-    return loadProperties.getProp().getProperty("botName");
+    return loadProperties.getProp().getProperty("testBotName");
   }
 
   @Override
   public String getBotToken() {
-    return loadProperties.getProp().getProperty("botToken");
+    return loadProperties.getProp().getProperty("testBotToken");
   }
 }

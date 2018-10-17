@@ -52,10 +52,13 @@ public class MongoDBHandler {
     return ocaQaTestCollection.aggregate(Collections.singletonList(Aggregates.sample(1))).first();
   }
 
-  public static Document getQuestionById(String id, String collectionName) {
+  public static Document getDocumentByIdInCollection(String id, String collectionName) {
     switch (collectionName) {
       case COLLECTION_NAME_OCA_QA_TEST: {
         return ocaQaTestCollection.find(Filters.eq("_id", new ObjectId(id))).first();
+      }
+      case COLLECTION_NAME_INTERVIEW_Q:{
+        return interviewQCollection.find(Filters.eq("_id", new ObjectId(id))).first();
       }
       default: {
         return null;
