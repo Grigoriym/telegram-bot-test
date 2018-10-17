@@ -43,16 +43,12 @@ public class FieldConstants {
   public static final String MAIN_PAGE = ":house: Main Page";
   public static final String NEXT_RANDOM_QUESTION = ":arrow_right: Next Question";
 
-  public static final String OCA_LIST_ARROW_LEFT = "oca list arrow left";
-  public static final String OCA_LIST_ARROW_RIGHT = "oca list arrow right";
-
   public static final String EMPTY_COMMAND = "empty command";
 
-  public static final String OCA_RANDOM_QUESTION_ANSWER_PREFIX = "03jknvwFHk";
   public static final String OCA_NOT_RANDOM_QUESTION_PREFIX = "9nf2gtd7Figgoyi3";
   public static final String OCA_ANSWER_PREFIX = "g29gjbyvVVHVGV";
-
   public static final String INTERVIEW_QUESTION_PREFIX = "g23498gh2oubutvNJN";
+  public static final String BOOKS_PREFIX = "ih8hugBHHJDoj";
 
 
 }
